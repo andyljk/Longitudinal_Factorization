@@ -257,7 +257,7 @@ single_factor = function(X, D, fn=c("EC","Free","RBF"), thres=1e-8, max_iter = 5
     count=count+1
     #print(fnorm(S_new - S_old))
   }
-  results = list(u = u_mt, l = l_mt, elbo = F_vec, S = S_new, noise = tau, n_iter = count)
+  results = list(u = u_mt, v = l_mt, elbo = F_vec, S = S_new, noise = tau, n_iter = count)
   return(results)
 }
 
@@ -294,7 +294,7 @@ backfit = function(X, D, R, fn = c("EC","Free","RBF"),
     count=count+1
     if (verbose){print(fnorm(S_new - S_old))}
   }
-  results = list(u = u_mt, l = l_mt, elbo = F_vec, S = S_new, noise = tau, n_factors = R)
+  results = list(u = u_mt, v = l_mt, elbo = F_vec, S = S_new, noise = tau, n_factors = R)
   if (null_check){results = nullcheck(results,D)}
   return(results)
 }
@@ -304,16 +304,16 @@ nullcheck = function(results,D){
   p = dim(results$S)[2]
   d = length(D) # D = dim(results$S)[3]
   r = dim(results$u$pos)[2]
-  if (any(colSums(abs(matrix(results$u$pos[,,1],ncol=r)))<1e-8) & any(colSums(abs(matrix(results$l$pos[,,1,],ncol=r*d)))<1e-8)){
+  if (any(colSums(abs(matrix(results$u$pos[,,1],ncol=r)))<1e-8) & any(colSums(abs(matrix(results$v$pos[,,1,],ncol=r*d)))<1e-8)){
     ind = which(colSums(abs(matrix(results$u$pos[,,1],ncol=r)))<1e-8)
     results$u$pos = results$u$pos[,-ind,]
-    results$l$pos = results$l$pos[,-ind,,]
+    results$v$pos = results$v$pos[,-ind,,]
     results$u$par = results$u$par[-ind]
-    results$l$par = results$l$par[-ind]
+    results$v$par = results$v$par[-ind]
     results$u$loglik = results$u$loglik[-ind]
-    results$l$loglik = results$l$loglik[-ind]
+    results$v$loglik = results$v$loglik[-ind]
     results$u$neg_KL = results$u$neg_KL[-ind]
-    results$l$neg_KL = results$l$neg_KL[-ind]
+    results$v$neg_KL = results$v$neg_KL[-ind]
     results$n_factors = results$n_factors - length(ind)
   }
   return(results)
@@ -332,16 +332,16 @@ greedy_fac = function(X, D, fn=c("EC","Free","RBF"), thres=1e-8){
   while (!done){
     R_k = X - S_new
     new = single_factor(R_k, D=D, fn=fn, thres=thres)
-    if (abs(sum(new$u$pos[,,1])) < 1e-10 & abs(sum(new$l$pos[,,1,])) < 1e-10){break}
+    if (abs(sum(new$u$pos[,,1])) < 1e-10 & abs(sum(new$v$pos[,,1,])) < 1e-10){break}
     k = k+1
     u_mt$pos[,k,] = new$u$pos
     u_mt$par[[k]] = new$u$par[[1]]
     u_mt$loglik[k] = new$u$loglik
     u_mt$neg_KL[k] = new$u$neg_KL
-    l_mt$pos[,k,,] = new$l$pos
-    l_mt$par[[k]] = new$l$par[[1]]
-    l_mt$loglik[k] = new$l$loglik
-    l_mt$neg_KL[k] = new$l$neg_KL
+    l_mt$pos[,k,,] = new$v$pos
+    l_mt$par[[k]] = new$v$par[[1]]
+    l_mt$loglik[k] = new$v$loglik
+    l_mt$neg_KL[k] = new$v$neg_KL
     tau = new$noise
     if (k>1){
       if (get_F(X, D, u_mt, l_mt, tau) <= F_vec[k-1]){
@@ -354,7 +354,7 @@ greedy_fac = function(X, D, fn=c("EC","Free","RBF"), thres=1e-8){
   }
   u_mt$pos = array(u_mt$pos[,1:k,], dim=c(n,k,2))
   l_mt$pos = array(l_mt$pos[,1:k,,], dim=c(p,k,2,d))
-  return(list(u = u_mt, l = l_mt, elbo = F_vec, S = S_new, noise = tau, n_factors = k))
+  return(list(u = u_mt, v = l_mt, elbo = F_vec, S = S_new, noise = tau, n_factors = k))
 }
 
 full_est = function(X, D, fn=c("EC","Free","RBF"), thres=1e-8, verbose=F){
@@ -362,7 +362,7 @@ full_est = function(X, D, fn=c("EC","Free","RBF"), thres=1e-8, verbose=F){
   g_init = greedy_fac(X,D,fn=fn,thres=thres)
   paste0("Estimated factors:", g_init$n_factors)
   print("Refining via full loop algorithm")
-  results = backfit(X,D,R=g_init$n_factors,fn=fn,u_mt=g_init$u,l_mt=g_init$l,thres=thres,verbose=verbose)
+  results = backfit(X,D,R=g_init$n_factors,fn=fn,u_mt=g_init$u,l_mt=g_init$v,thres=thres,verbose=verbose)
   print("done")
   return(results)
 }
@@ -429,7 +429,7 @@ full_impute = function(X,D,R=NULL,fn=c("EC","RBF","Free"),
   count = 0
   if (method=="greedy+backfit"){
     g_init = greedy_fac(X,D,fn=fn,thres=thres)
-    R=g_init$n_factors; u_mt=g_init$u; l_mt=g_init$l
+    R=g_init$n_factors; u_mt=g_init$u; l_mt=g_init$v
   }else {
     if (is.null(R)){return("n factors required for backfit only algorithm")}
     init = init_factors(X,D,R=R)
@@ -459,28 +459,7 @@ full_impute = function(X,D,R=NULL,fn=c("EC","RBF","Free"),
     count=count+1
     if (verbose){print(fnorm(S_new[M] - S_old[M]))}
   }
-  results = list(u = u_mt, l = l_mt, elbo = F_vec, S = S_new, noise = tau, n_factors = R)
+  results = list(u = u_mt, v = l_mt, elbo = F_vec, S = S_new, noise = tau, n_factors = R)
   results = nullcheck(results,D)
   return(results)
 }
-
-
-# full_impute = function(X,D,fn=c("EC","Free","RBF"),imp_thres=1e-5,thres=1e-5,max_iter=30){
-#   n = dim(X)[1]; p=dim(X)[2]; d = length(D) # D=dim(X)[3]
-#   M = which(is.na(X))
-#   X[M] = 0
-#   S_new = X
-#   S_old = array(Inf, dim=c(n,p,d))
-#   count = 0
-#   while (fnorm(S_new[M] - S_old[M]) > imp_thres & count <= max_iter){
-#     S_old = S_new
-#     results = full_est(X, D, fn=fn, thres=thres) # backfit(X, D, R, fn=fn, thres=thres) #
-#     S_new = results$S
-#     X[M] = S_new[M]
-#     print("impute iter:")
-#     print(fnorm(S_new[M] - S_old[M]))
-#     #print(sum((S_new[M] - S.[M])^2)/sum(S.[M]^2))
-#     count = count + 1
-#   }
-#   return(results)
-# }
